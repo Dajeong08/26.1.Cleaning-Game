@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using TMPro;
 
@@ -106,5 +107,21 @@ public class DirtPainter : MonoBehaviour
             progressText.text = $"청소 진행도: {finalProgress:F1}%";
             progressText.color = Color.white;
         }
+    }
+
+    public void RevealDirt(float duration)
+    {
+        StartCoroutine(RevealRoutine(duration));
+    }
+
+    private IEnumerator RevealRoutine(float duration)
+    {
+        if (mat == null) mat = GetComponent<Renderer>().material;
+
+        // 쉐이더의 _IsScanning 변수를 1로 켜기
+        mat.SetFloat("_IsScanning", 1f);
+        yield return new WaitForSeconds(duration);
+        // 다시 0으로 끄기
+        mat.SetFloat("_IsScanning", 0f);
     }
 }

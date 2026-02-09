@@ -26,6 +26,12 @@ public class CoinManager : MonoBehaviour
         currentCoins += amount;
         UpdateUI();
     }
+    public void SubtractCoins(int amount)
+    {
+        currentCoins -= amount;
+        if (currentCoins < 0) currentCoins = 0; // 마이너스 방지
+        UpdateUI();
+    }
 
     // UI 업데이트
     void UpdateUI()
