@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
+using System.Collections.Generic; // 추가됨
 using TMPro;
 
 public class PlayerMovement : MonoBehaviour
@@ -24,10 +25,10 @@ public class PlayerMovement : MonoBehaviour
     private float runMultiplier = 1.4f;
     private float dashMultiplier = 2.8f;
     private float dashDuration = 0.2f;
-    public float dashCooldown = 10f;      // 대쉬 쿨타임 10초
-    private float lastDashTime = -10f;    // 마지막 대쉬 시간
+    public float dashCooldown = 10f;
+    private float lastDashTime = -10f;
     private bool isDashing = false;
-    [SerializeField] private Image dashSlider; // 대쉬 쿨타임 UI
+    [SerializeField] private Image dashSlider;
 
     [Header("--- 산소 시스템 ---")]
     public float maxOxygen = 100f;
@@ -35,9 +36,10 @@ public class PlayerMovement : MonoBehaviour
     public Image oxygenBar;
     [HideInInspector] public bool isInBase = false;
 
-    [Header("--- UI 시스템 ---")]
+    [Header("--- UI 시스템 (N:업그레이드, M:의뢰게시판) ---")]
     [SerializeField] private GameObject UpgradeScreen;
     private bool isUpgradeOpen = false;
+    // M키 게시판 제어는 MissionManager의 mMenuPanel을 참조하여 사용합니다.
 
     [Header("--- [왼쪽] Status 텍스트 ---")]
     [SerializeField] private TextMeshProUGUI coinText;
@@ -89,14 +91,46 @@ public class PlayerMovement : MonoBehaviour
 
     void Update()
     {
+        // N키: 업그레이드 창
         if (Input.GetKeyDown(KeyCode.N)) ToggleUpgrade();
-        if (isUpgradeOpen) return;
+
+        // M키: 의뢰 게시판 (MissionManager 연동)
+        if (Input.GetKeyDown(KeyCode.M)) ToggleMissionMenu();
+
+        // UI가 하나라도 열려있으면 이동/회전 중단
+        if (isUpgradeOpen || (MissionManager.Instance != null && MissionManager.Instance.mMenuPanel.activeSelf)) return;
 
         HandleRotation();
         HandleMovement();
         HandleOxygen();
         HandleInputs();
         UpdateCooldownUI();
+    }
+
+    // --- 추가된 M키 제어 함수 ---
+    private void ToggleMissionMenu()
+    {
+        if (MissionManager.Instance == null || MissionManager.Instance.mMenuPanel == null) return;
+
+        GameObject menu = MissionManager.Instance.mMenuPanel;
+        bool isActive = !menu.activeSelf;
+        menu.SetActive(isActive);
+
+        if (isActive)
+        {
+            // 다른 창이 열려있다면 닫기
+            if (isUpgradeOpen) ToggleUpgrade();
+
+            // 목록 갱신 및 마우스 해제
+            MissionManager.Instance.ShowAvailableJobs();
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 
     private void UpdateCooldownUI()
@@ -123,7 +157,6 @@ public class PlayerMovement : MonoBehaviour
 
         if (hasFins)
         {
-            // [대쉬] 우클릭 + 쿨타임 10초
             if (Input.GetMouseButtonDown(1) && !isDashing && Time.time >= lastDashTime + dashCooldown)
             {
                 StartCoroutine(DashRoutine());
@@ -133,7 +166,6 @@ public class PlayerMovement : MonoBehaviour
             {
                 currentMoveSpeed = speed * dashMultiplier;
             }
-            // [달리기] Shift
             else if (Input.GetKey(KeyCode.LeftShift))
             {
                 currentMoveSpeed = speed * runMultiplier;
@@ -160,55 +192,12 @@ public class PlayerMovement : MonoBehaviour
         isDashing = false;
     }
 
-    // --- 업그레이드 함수부 ---
-    public void BuyFins()
-    {
-        if (!hasFins && CoinManager.instance.currentCoins >= currentBuyFinCost)
-        {
-            CoinManager.instance.SubtractCoins(currentBuyFinCost);
-            hasFins = true;
-            UpdateStatusUI();
-        }
-    }
+    // --- 업그레이드 함수부 생략 (기존과 동일) ---
+    public void BuyFins() { if (!hasFins && CoinManager.instance.currentCoins >= currentBuyFinCost) { CoinManager.instance.SubtractCoins(currentBuyFinCost); hasFins = true; UpdateStatusUI(); } }
+    public void UpgradeFinLevel() { if (hasFins && CoinManager.instance.currentCoins >= currentUpFinCost) { CoinManager.instance.SubtractCoins(currentUpFinCost); finLevel++; speed += 10f; swimSpeed += 7f; currentUpFinCost += 60; UpdateStatusUI(); } }
+    public void UpgradeOxygenCapacity() { if (CoinManager.instance.currentCoins >= currentUpOxyCapCost) { CoinManager.instance.SubtractCoins(currentUpOxyCapCost); oxygenCapLevel++; maxOxygen += 25f; currentOxygen = maxOxygen; currentUpOxyCapCost += 40; UpdateStatusUI(); } }
+    public void UpgradeOxygenEfficiency() { if (oxygenEffLevel < 4 && CoinManager.instance.currentCoins >= currentUpOxyEffCost) { CoinManager.instance.SubtractCoins(currentUpOxyEffCost); oxygenEffLevel++; currentUpOxyEffCost += 70; UpdateStatusUI(); } }
 
-    public void UpgradeFinLevel()
-    {
-        if (hasFins && CoinManager.instance.currentCoins >= currentUpFinCost)
-        {
-            CoinManager.instance.SubtractCoins(currentUpFinCost);
-            finLevel++;
-            speed += 10f;
-            swimSpeed += 7f;
-            currentUpFinCost += 60;
-            UpdateStatusUI();
-        }
-    }
-
-    public void UpgradeOxygenCapacity()
-    {
-        if (CoinManager.instance.currentCoins >= currentUpOxyCapCost)
-        {
-            CoinManager.instance.SubtractCoins(currentUpOxyCapCost);
-            oxygenCapLevel++;
-            maxOxygen += 25f;
-            currentOxygen = maxOxygen;
-            currentUpOxyCapCost += 40;
-            UpdateStatusUI();
-        }
-    }
-
-    public void UpgradeOxygenEfficiency()
-    {
-        if (oxygenEffLevel < 4 && CoinManager.instance.currentCoins >= currentUpOxyEffCost)
-        {
-            CoinManager.instance.SubtractCoins(currentUpOxyEffCost);
-            oxygenEffLevel++;
-            currentUpOxyEffCost += 70;
-            UpdateStatusUI();
-        }
-    }
-
-    // --- UI 업데이트 ---
     public void UpdateStatusUI()
     {
         if (CoinManager.instance != null)
@@ -221,13 +210,10 @@ public class PlayerMovement : MonoBehaviour
 
         buyFinBtn.interactable = !hasFins && (CoinManager.instance.currentCoins >= currentBuyFinCost);
         buyFinBtnText.text = hasFins ? "획득 완료" : $"오리발 구매 ({currentBuyFinCost}G)";
-
         upFinBtn.interactable = hasFins && (CoinManager.instance.currentCoins >= currentUpFinCost);
         upFinBtnText.text = !hasFins ? "오리발 필요" : $"속도 강화 ({currentUpFinCost}G)";
-
         upOxyCapBtn.interactable = (CoinManager.instance.currentCoins >= currentUpOxyCapCost);
         upOxyCapBtnText.text = $"용량 확장 ({currentUpOxyCapCost}G)";
-
         if (oxygenEffLevel >= 4) { upOxyEffBtn.interactable = false; upOxyEffBtnText.text = "최고 등급"; }
         else { upOxyEffBtn.interactable = (CoinManager.instance.currentCoins >= currentUpOxyEffCost); upOxyEffBtnText.text = $"등급 강화 ({currentUpOxyEffCost}G)"; }
     }
@@ -238,7 +224,11 @@ public class PlayerMovement : MonoBehaviour
     {
         isUpgradeOpen = !isUpgradeOpen;
         if (UpgradeScreen != null) { UpgradeScreen.SetActive(isUpgradeOpen); if (isUpgradeOpen) UpdateStatusUI(); }
-        if (isUpgradeOpen) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; controller.Move(Vector3.zero); }
+        if (isUpgradeOpen)
+        {
+            Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
+            if (MissionManager.Instance != null) MissionManager.Instance.mMenuPanel.SetActive(false);
+        }
         else { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
     }
 
@@ -250,16 +240,13 @@ public class PlayerMovement : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.V) && Time.time >= lastScanTime + scanCooldown) ExecuteScan();
     }
 
-    private void ExecuteScan() { lastScanTime = Time.time; DirtPainter[] painters = Object.FindObjectsByType<DirtPainter>(FindObjectsSortMode.None); foreach (var p in painters) p.RevealDirt(0.5f); }
+    private void ExecuteScan() { lastScanTime = Time.time; DirtPainter[] painters = Object.FindObjectsByType<DirtPainter>(FindObjectsSortMode.None); foreach (var p in painters) p.RevealDirt(1f); }
 
     private void HandleRotation()
     {
         float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
         float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
-
-        xRotation -= mouseY;
-        xRotation = Mathf.Clamp(xRotation, -90f, 90f);
-
+        xRotation -= mouseY; xRotation = Mathf.Clamp(xRotation, -90f, 90f);
         mainCam.transform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
         playerBody.Rotate(Vector3.up * mouseX);
     }
@@ -267,15 +254,12 @@ public class PlayerMovement : MonoBehaviour
     private void HandleOxygen()
     {
         if (isInBase) currentOxygen += Time.deltaTime * 20f;
-        else
-        {
-            float consumptionRate = 0.5f * (1.1f - (oxygenEffLevel * 0.1f));
-            currentOxygen -= Time.deltaTime * consumptionRate;
-        }
+        else { float consumptionRate = 0.5f * (1.1f - (oxygenEffLevel * 0.1f)); currentOxygen -= Time.deltaTime * consumptionRate; }
         currentOxygen = Mathf.Clamp(currentOxygen, 0, maxOxygen);
         if (oxygenBar != null) oxygenBar.fillAmount = currentOxygen / maxOxygen;
     }
 
+    // PlayerMovement.cs 의 TryPickupTrash 내부 수정
     private void TryPickupTrash()
     {
         Ray ray = mainCam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
@@ -286,6 +270,10 @@ public class PlayerMovement : MonoBehaviour
             if (trash != null)
             {
                 if (CoinManager.instance != null) CoinManager.instance.AddCoins(trash.scoreValue);
+
+                // ★ 중요: 매니저에게 쓰레기 수거 사실을 알림
+                if (MissionManager.Instance != null) MissionManager.Instance.OnTrashPickedUp();
+
                 Destroy(trash.gameObject);
             }
         }
@@ -302,12 +290,7 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    private void UpdateNozzleUI()
-    {
-        if (nozzleStatusText == null) return;
-        nozzleStatusText.text = "노즐 상태 : " + (currentMode == WaterMode.Strong ? "광범위" : (currentMode == WaterMode.Mid ? "일반" : "집중"));
-    }
-
+    private void UpdateNozzleUI() { if (nozzleStatusText == null) return; nozzleStatusText.text = "노즐 상태 : " + (currentMode == WaterMode.Strong ? "광범위" : (currentMode == WaterMode.Mid ? "일반" : "집중")); }
     private void OnTriggerEnter(Collider other) { if (other.CompareTag("Base")) isInBase = true; }
     private void OnTriggerExit(Collider other) { if (other.CompareTag("Base")) isInBase = false; }
 }

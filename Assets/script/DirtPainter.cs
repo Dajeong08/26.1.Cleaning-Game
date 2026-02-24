@@ -16,6 +16,7 @@ public class DirtPainter : MonoBehaviour
     public float targetThreshold = 1f;
 
     private float nextUpdateTime;
+    private float lastProgress = 0f; // 최적화를 위해 이전 진행도 저장
 
     void Start()
     {
@@ -32,19 +33,16 @@ public class DirtPainter : MonoBehaviour
 
     public void Paint(Vector2 uv, float radius, float speed)
     {
-        // 1. 기본 위치 페인팅
         DrawCircle(uv, radius, speed);
 
-        // 2. 경계선 보정 (X축 0과 1이 만나는 지점 처리)
-        // 브러시가 왼쪽 끝(0)에 걸치면 오른쪽 끝(1)도 같이 닦음
         if (uv.x < radius)
             DrawCircle(new Vector2(uv.x + 1.0f, uv.y), radius, speed);
-        // 브러시가 오른쪽 끝(1)에 걸치면 왼쪽 끝(0)도 같이 닦음
         else if (uv.x > 1.0f - radius)
             DrawCircle(new Vector2(uv.x - 1.0f, uv.y), radius, speed);
 
         templateMask.Apply();
 
+        // 0.15초마다 진행도 계산 (퍼포먼스 확보)
         if (Time.time >= nextUpdateTime)
         {
             UpdatePercentage();
@@ -52,14 +50,12 @@ public class DirtPainter : MonoBehaviour
         }
     }
 
-    // 실제 원을 그리는 로직을 별도 함수로 분리
     private void DrawCircle(Vector2 uv, float radius, float speed)
     {
         int centerX = (int)(uv.x * templateMask.width);
         int centerY = (int)(uv.y * templateMask.height);
         int r = (int)(radius * templateMask.width);
 
-        // 픽셀 범위 계산
         for (int x = -r; x < r; x++)
         {
             for (int y = -r; y < r; y++)
@@ -69,7 +65,6 @@ public class DirtPainter : MonoBehaviour
                     int px = centerX + x;
                     int py = centerY + y;
 
-                    // 텍스처 범위를 벗어나는 픽셀은 무시 (DrawCircle을 여러번 호출하므로 중요)
                     if (px < 0 || px >= templateMask.width || py < 0 || py >= templateMask.height)
                         continue;
 
@@ -83,29 +78,42 @@ public class DirtPainter : MonoBehaviour
 
     void UpdatePercentage()
     {
-        if (progressText == null) return;
-
         Color[] pixels = templateMask.GetPixels();
         float whitePixels = 0;
 
         for (int i = 0; i < pixels.Length; i++)
         {
-            if (pixels[i].r > 0.9f) whitePixels++; 
+            if (pixels[i].r > 0.9f) whitePixels++;
         }
 
         float rawRatio = whitePixels / pixels.Length;
         float finalProgress = (rawRatio / targetThreshold) * 100f;
         finalProgress = Mathf.Clamp(finalProgress, 0f, 100f);
 
-        if (finalProgress >= 99.9f)
+        // --- ★ MissionManager 연동 부분 ★ ---
+        // 진행도에 변화가 있을 때만 MissionManager 호출
+        if (Mathf.Abs(lastProgress - finalProgress) > 0.1f)
         {
-            progressText.text = "미션 완료: 100%";
-            progressText.color = Color.green;
+            lastProgress = finalProgress;
+            if (MissionManager.Instance != null)
+            {
+                MissionManager.Instance.UpdateProgress(finalProgress);
+            }
         }
-        else
+
+        // 자체 UI 텍스트 업데이트
+        if (progressText != null)
         {
-            progressText.text = $"청소 진행도: {finalProgress:F1}%";
-            progressText.color = Color.white;
+            if (finalProgress >= 99.9f)
+            {
+                progressText.text = "미션 완료: 100%";
+                progressText.color = Color.green;
+            }
+            else
+            {
+                progressText.text = $"청소 진행도: {finalProgress:F1}%";
+                progressText.color = Color.white;
+            }
         }
     }
 
@@ -117,11 +125,8 @@ public class DirtPainter : MonoBehaviour
     private IEnumerator RevealRoutine(float duration)
     {
         if (mat == null) mat = GetComponent<Renderer>().material;
-
-        // 쉐이더의 _IsScanning 변수를 1로 켜기
         mat.SetFloat("_IsScanning", 1f);
         yield return new WaitForSeconds(duration);
-        // 다시 0으로 끄기
         mat.SetFloat("_IsScanning", 0f);
     }
 }
