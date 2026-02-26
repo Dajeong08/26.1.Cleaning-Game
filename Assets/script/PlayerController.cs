@@ -15,7 +15,7 @@ public class PlayerMovement : MonoBehaviour
     public float speed = 55f;
     public float swimSpeed = 40f;
     public float sinkSpeed = 30f;
-    public float minHeight = 1.5f; // 이 Y값 이하로는 절대 못 내려감
+    public float minHeight = 1.5f;
 
     [Header("--- 시점 회전 설정 ---")]
     public float mouseSensitivity = 100f;
@@ -69,12 +69,20 @@ public class PlayerMovement : MonoBehaviour
     public float[] cleanSpeeds = { 1.5f, 2.5f, 5.5f };
     public TextMeshProUGUI nozzleStatusText;
 
+    [Header("--- 물 줄기 상세 설정 (멀티 파티클) ---")]
+    // 인스펙터에서 사용할 파티클 오브젝트들을 모두 드래그해서 넣어주세요. (예: 7개)
+    public List<GameObject> waterParticleObjects = new List<GameObject>();
+
     void Start()
     {
         mainCam = Camera.main;
         currentOxygen = maxOxygen;
         Cursor.lockState = CursorLockMode.Locked;
         UpdateNozzleUI();
+
+        // 시작 시 모든 파티클 꺼두기
+        foreach (var obj in waterParticleObjects) { if (obj != null) obj.SetActive(false); }
+
         if (UpgradeScreen != null) UpgradeScreen.SetActive(false);
     }
 
@@ -84,46 +92,87 @@ public class PlayerMovement : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.M)) ToggleMissionMenu();
 
         isMissionMenuOpen = (MissionManager.Instance != null && MissionManager.Instance.mMenuPanel.activeSelf);
-        if (isUIOpen) return;
+
+        if (isUIOpen)
+        {
+            StopAllParticles();
+            return;
+        }
 
         HandleRotation();
         HandleMovement();
         HandleOxygen();
         HandleInputs();
+        HandleWaterEffect(); // 물 줄기 출력 로직 (개수 제어)
     }
+
+    private void HandleInputs()
+    {
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            currentMode = (WaterMode)(((int)currentMode + 1) % 3);
+            UpdateNozzleUI();
+            // 파티클 개수가 실시간으로 변해야 하므로 발사 중이라면 즉시 업데이트를 위해 HandleWaterEffect가 호출됨
+        }
+        if (Input.GetKeyDown(KeyCode.E)) TryPickupTrash();
+        if (Input.GetMouseButton(0)) HandleCleaning();
+    }
+
+    private void HandleWaterEffect()
+    {
+        if (waterParticleObjects.Count == 0) return;
+
+        bool isFiring = Input.GetMouseButton(0) && !isUIOpen;
+
+        if (isFiring)
+        {
+            int totalCount = waterParticleObjects.Count;
+            int activeCount = 1;
+
+            // 모드별 활성화 개수 계산
+            if (currentMode == WaterMode.Strong) activeCount = totalCount; // 광범위: 전체 (예: 7개)
+            else if (currentMode == WaterMode.Mid) activeCount = Mathf.Max(1, totalCount / 2 + 1); // 중간: 절반 정도 (예: 4개)
+            else activeCount = 1; // 집중: 1개
+
+            for (int i = 0; i < totalCount; i++)
+            {
+                if (waterParticleObjects[i] == null) continue;
+
+                bool shouldBeActive = i < activeCount;
+                if (waterParticleObjects[i].activeSelf != shouldBeActive)
+                {
+                    waterParticleObjects[i].SetActive(shouldBeActive);
+                }
+            }
+        }
+        else
+        {
+            StopAllParticles();
+        }
+    }
+
+    private void StopAllParticles()
+    {
+        foreach (var obj in waterParticleObjects)
+        {
+            if (obj != null && obj.activeSelf) obj.SetActive(false);
+        }
+    }
+
+    // ... (이동, 회전, 산소 등 나머지 기존 로직 유지) ...
 
     private void HandleMovement()
     {
         float x = Input.GetAxis("Horizontal");
         float z = Input.GetAxis("Vertical");
-
         float currentMoveSpeed = speed;
         if (hasFins && Input.GetKey(KeyCode.LeftShift)) currentMoveSpeed = speed * 1.4f;
-
         Vector3 move = (transform.right * x + transform.forward * z);
-        if (move.magnitude > 0.1f)
-            controller.Move(move * currentMoveSpeed * Time.deltaTime);
-
+        if (move.magnitude > 0.1f) controller.Move(move * currentMoveSpeed * Time.deltaTime);
         float finalSwimSpeed = (hasFins && Input.GetKey(KeyCode.LeftShift)) ? swimSpeed * 1.4f : swimSpeed;
-
-        // 1. 상승 (Space 입력 시)
-        if (Input.GetKey(KeyCode.Space))
-        {
-            controller.Move(Vector3.up * finalSwimSpeed * Time.deltaTime);
-        }
-        // 2. 하강 (Space 입력이 없고, 현재 높이가 minHeight보다 높을 때만 가라앉음)
-        else if (transform.position.y > minHeight)
-        {
-            controller.Move(Vector3.down * sinkSpeed * Time.deltaTime);
-        }
-
-        // 3. 강제 높이 고정 (만약 외부 힘으로 인해 minHeight 아래로 뚫고 내려갔을 경우 즉시 복구)
-        if (transform.position.y < minHeight)
-        {
-            Vector3 targetPos = transform.position;
-            targetPos.y = minHeight;
-            transform.position = targetPos;
-        }
+        if (Input.GetKey(KeyCode.Space)) controller.Move(Vector3.up * finalSwimSpeed * Time.deltaTime);
+        else if (transform.position.y > minHeight) controller.Move(Vector3.down * sinkSpeed * Time.deltaTime);
+        if (transform.position.y < minHeight) { Vector3 targetPos = transform.position; targetPos.y = minHeight; transform.position = targetPos; }
     }
 
     private void ToggleMissionMenu()
@@ -132,40 +181,19 @@ public class PlayerMovement : MonoBehaviour
         GameObject menu = MissionManager.Instance.mMenuPanel;
         bool isActive = !menu.activeSelf;
         menu.SetActive(isActive);
-
-        if (isActive)
-        {
-            if (isUpgradeOpen) ToggleUpgrade();
-            MissionManager.Instance.ShowAvailableJobs();
-            SetCursor(true);
-        }
-        else
-        {
-            SetCursor(false);
-        }
+        if (isActive) { if (isUpgradeOpen) ToggleUpgrade(); MissionManager.Instance.ShowAvailableJobs(); SetCursor(true); }
+        else SetCursor(false);
     }
 
     void ToggleUpgrade()
     {
         isUpgradeOpen = !isUpgradeOpen;
         if (UpgradeScreen != null) UpgradeScreen.SetActive(isUpgradeOpen);
-        if (isUpgradeOpen)
-        {
-            UpdateStatusUI();
-            if (MissionManager.Instance != null) MissionManager.Instance.mMenuPanel.SetActive(false);
-            SetCursor(true);
-        }
-        else
-        {
-            SetCursor(false);
-        }
+        if (isUpgradeOpen) { UpdateStatusUI(); if (MissionManager.Instance != null) MissionManager.Instance.mMenuPanel.SetActive(false); SetCursor(true); }
+        else SetCursor(false);
     }
 
-    private void SetCursor(bool show)
-    {
-        Cursor.lockState = show ? CursorLockMode.None : CursorLockMode.Locked;
-        Cursor.visible = show;
-    }
+    private void SetCursor(bool show) { Cursor.lockState = show ? CursorLockMode.None : CursorLockMode.Locked; Cursor.visible = show; }
 
     public void BuyFins() { if (!hasFins && CoinManager.instance.currentCoins >= currentBuyFinCost) { CoinManager.instance.SubtractCoins(currentBuyFinCost); hasFins = true; UpdateStatusUI(); } }
     public void UpgradeFinLevel() { if (hasFins && CoinManager.instance.currentCoins >= currentUpFinCost) { CoinManager.instance.SubtractCoins(currentUpFinCost); finLevel++; speed += 10f; swimSpeed += 7f; currentUpFinCost += 60; UpdateStatusUI(); } }
@@ -190,13 +218,6 @@ public class PlayerMovement : MonoBehaviour
     }
 
     string GetOxygenRankName(int level) { switch (level) { case 1: return "일반"; case 2: return "강화"; case 3: return "전문가"; default: return "심해용"; } }
-
-    private void HandleInputs()
-    {
-        if (Input.GetKeyDown(KeyCode.Q)) { currentMode = (WaterMode)(((int)currentMode + 1) % 3); UpdateNozzleUI(); }
-        if (Input.GetKeyDown(KeyCode.E)) TryPickupTrash();
-        if (Input.GetMouseButton(0)) HandleCleaning();
-    }
 
     private void HandleRotation()
     {
