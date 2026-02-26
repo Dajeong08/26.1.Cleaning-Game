@@ -16,7 +16,7 @@ public class TrackerItem : MonoBehaviour
 
         // 초기 텍스트 설정
         UpdateMissionStatus(
-            $"<b>{data.missionName}</b>\n남은 쓰레기 개수 : {data.remainingTrash}\n닦기 진행도 : 0.0%",
+            $"<b>{data.missionName}</b>\n남은 따개비 개수 : {data.remainingTrash}\n닦기 진행도 : 0.0%",
             false,
             data.rewardCoin
         );
