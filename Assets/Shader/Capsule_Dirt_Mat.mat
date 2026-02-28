@@ -24,11 +24,11 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _DirtTex:
-        m_Texture: {fileID: 2800000, guid: 16c53fef92528674fbf2fab05e0bf9a7, type: 3}
+        m_Texture: {fileID: 2800000, guid: 3d94dcdf086297049943a0b0e7566fad, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 19b640978e503864fb00091c821c4935, type: 3}
+        m_Texture: {fileID: 2800000, guid: 4e57b06155f32894697f53e2fce7f1af, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MaskTex:
@@ -39,6 +39,5 @@ Material:
     m_Floats:
     - _IsScanning: 0
     m_Colors:
-    - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _ScanColor: {r: 0, g: 1, b: 0, a: 1}
   m_BuildTextureStacks: []
