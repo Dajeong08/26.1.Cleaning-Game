@@ -1,0 +1,237 @@
+using UnityEngine;
+
+
+
+/// <summary>
+
+/// 잠수함 껍데기 오브젝트 하나하나에 붙이는 스크립트.
+
+/// DirtPainter(캡슐용)와 완전히 분리된 잠수함 전용 닦기 시스템.
+
+/// </summary>
+
+[RequireComponent(typeof(Renderer))]
+
+public class SubmarinePart : MonoBehaviour
+
+{
+
+    [Header("마스크 설정")]
+
+    [Tooltip("마스크 해상도. 클수록 정밀하지만 무거움 (512 권장)")]
+
+    public int maskSize = 512;
+
+
+
+    // ── 내부 상태 ─────────────────────────────────────
+
+    private Texture2D _maskTex;
+
+    private Color32[] _pixels;       // Color32: Color보다 메모리 절반
+
+    private Material _mat;
+
+    private bool _isDirty;      // Apply() 필요 여부 플래그
+
+
+
+    // 진행도 관련
+
+    private int _totalPixels;
+
+    private int _cleanedPixels;
+
+
+
+    /// <summary>0~100 사이 세척 진행도 (%)</summary>
+
+    [HideInInspector] public float partProgress = 0f;
+
+
+
+    /// <summary>진행도 변경 시 SubmarineManager에 알리는 이벤트</summary>
+
+    public System.Action onProgressChanged;
+
+
+
+    // ─────────────────────────────────────────────────
+
+    void Start()
+
+    {
+
+        _mat = GetComponent<Renderer>().material;
+
+
+
+        // 마스크 생성 (전부 검정 = 전부 더러움)
+
+        _maskTex = new Texture2D(maskSize, maskSize, TextureFormat.R8, false);
+
+        _pixels = new Color32[maskSize * maskSize];
+
+        // Color32(0,0,0,255): R=0(더러움), Alpha는 R8 포맷에서 사용 안 함
+
+        for (int i = 0; i < _pixels.Length; i++)
+
+            _pixels[i] = new Color32(0, 0, 0, 255);
+
+
+
+        _maskTex.SetPixels32(_pixels);
+
+        _maskTex.Apply();
+
+
+
+        _mat.SetTexture("_MaskTex", _maskTex);
+
+        _totalPixels = maskSize * maskSize;
+
+        _cleanedPixels = 0;
+
+    }
+
+
+
+    /// <summary>
+
+    /// PlayerMovement.HandleCleaning()에서 호출.
+
+    /// DirtPainter.Paint()와 동일한 시그니처로 맞춤.
+
+    /// </summary>
+
+    public void Clean(Vector2 uv, float radius, float speed)
+
+    {
+
+        int cx = Mathf.RoundToInt(uv.x * (maskSize - 1));
+
+        int cy = Mathf.RoundToInt(uv.y * (maskSize - 1));
+
+        int r = Mathf.RoundToInt(radius * maskSize);
+
+        int r2 = r * r;
+
+
+
+        // UV 경계 루프 처리 (DirtPainter처럼 가장자리 이음새 방지)
+
+        PaintCircle(cx, cy, r, r2, speed);
+
+        if (cx - r < 0) PaintCircle(cx + maskSize, cy, r, r2, speed);
+
+        if (cx + r >= maskSize) PaintCircle(cx - maskSize, cy, r, r2, speed);
+
+
+
+        if (_isDirty)
+
+        {
+
+            _maskTex.SetPixels32(_pixels);
+
+            _maskTex.Apply();
+
+            _isDirty = false;
+
+
+
+            CalculateProgress();
+
+            onProgressChanged?.Invoke();
+
+        }
+
+    }
+
+
+
+    private void PaintCircle(int cx, int cy, int r, int r2, float speed)
+
+    {
+
+        for (int dx = -r; dx <= r; dx++)
+
+        {
+
+            for (int dy = -r; dy <= r; dy++)
+
+            {
+
+                if (dx * dx + dy * dy > r2) continue;
+
+
+
+                int px = cx + dx;
+
+                int py = cy + dy;
+
+                if (px < 0 || px >= maskSize || py < 0 || py >= maskSize) continue;
+
+
+
+                int idx = py * maskSize + px;
+
+                byte cur = _pixels[idx].r;
+
+
+
+                if (cur < 255)
+
+                {
+
+                    // speed * deltaTime을 0~255 범위로 변환
+
+                    int add = Mathf.RoundToInt(speed * Time.deltaTime * 255f);
+
+                    int next = Mathf.Clamp(cur + add, 0, 255);
+
+                    _pixels[idx] = new Color32((byte)next, 0, 0, 255);
+
+
+
+                    if (next >= 230 && cur < 230) // 90% 이상 → 닦인 픽셀로 카운트
+
+                        _cleanedPixels++;
+
+
+
+                    _isDirty = true;
+
+                }
+
+            }
+
+        }
+
+    }
+
+
+
+    private void CalculateProgress()
+
+    {
+
+        // _cleanedPixels를 이미 누적 계산하므로 전체 루프 불필요
+
+        partProgress = (_cleanedPixels / (float)_totalPixels) * 100f;
+
+        partProgress = Mathf.Clamp(partProgress, 0f, 100f);
+
+    }
+
+
+
+    void OnDestroy()
+
+    {
+
+        if (_maskTex != null) Destroy(_maskTex);
+
+    }
+
+}
